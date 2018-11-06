@@ -9,6 +9,15 @@ Your robot has been kidnapped and transported to a new location! Luckily it has 
 
 In this project you will implement a 2 dimensional particle filter in C++. Your particle filter will be given a map and some initial localization information (analogous to what a GPS would provide). At each time step your filter will also get observation and control data.
 
+Steps specifically are: 
+(1). Initialize N particle filters using GPS and measurement error.
+(2). Move/Predict the location of all particle filters using a motion model for next time step. 
+(3). Transform the observations at this time step (in vehicle coordinate system) to coordinates on the map from the perspective of each particle filter. 
+(4). Find the matching landmark to the transformed observation coordinates using nearest neighbor. 
+(5). Based on the known true landmark coordinates on the map and the matched transformed observation, use multivaraite gaussian to calculate likelihood of each landmark for each particle filter, and then multiple all likelihoods for all landmarks to get the weight of that specific particle filter. 
+(6). Normalize the weights, and use the weights to resample the particles based on the updated weights. 
+(7). Repeat (2) - (6) for all the time steps.
+
 ## Running the Code
 This project involves the Term 2 Simulator which can be downloaded [here](https://github.com/udacity/self-driving-car-sim/releases)
 
