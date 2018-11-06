@@ -18,14 +18,14 @@
 #include "particle_filter.h"
 
 using namespace std;
-
+static default_random_engine gen;
 void ParticleFilter::init(double x, double y, double theta, double std[]) {
 	// TODO: Set the number of particles. Initialize all particles to first position (based on estimates of 
 	//   x, y, theta and their uncertainties from GPS) and all weights to 1. 
 	// Add random Gaussian noise to each particle.
 	// NOTE: Consult particle_filter.h for more information about this method (and others in this file).
-	default_random_engine gen;
-	num_particles = 1000;
+	//default_random_engine gen;
+	num_particles = 500;
 	double std_x, std_y, std_theta;
 	std_x = std[0];
 	std_y = std[1];
@@ -56,7 +56,7 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 	// NOTE: When adding noise you may find std::normal_distribution and std::default_random_engine useful.
 	//  http://en.cppreference.com/w/cpp/numeric/random/normal_distribution
 	//  http://www.cplusplus.com/reference/random/default_random_engine/
-	default_random_engine gen;
+	//default_random_engine gen;
 	double std_x, std_y, std_theta;
 	std_x = std_pos[0];
 	std_y = std_pos[1];
@@ -70,14 +70,17 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 		noise_y = dist_y(gen);
 		noise_theta = dist_theta(gen);
 		double x_next, y_next, theta_next;
-		theta_next = particles[i].theta + yaw_rate * delta_t + noise_theta;
+		theta_next = particles[i].theta + yaw_rate * delta_t;
 		if (fabs(yaw_rate) > 0.00001) {
-			x_next = particles[i].x + velocity / yaw_rate * (sin(theta_next) - sin(particles[i].theta)) + noise_x;
-			y_next = particles[i].y + velocity / yaw_rate * (-cos(theta_next) + cos(particles[i].theta)) + noise_y; 
+			x_next = particles[i].x + velocity / yaw_rate * (sin(theta_next) - sin(particles[i].theta));
+			y_next = particles[i].y + velocity / yaw_rate * (-cos(theta_next) + cos(particles[i].theta)); 
         }else{
 			x_next = particles[i].x + velocity * delta_t * cos(particles[i].theta);
 			y_next = particles[i].y + velocity * delta_t * sin(particles[i].theta);
         }
+		x_next += noise_x;
+		y_next += noise_y;
+		theta_next += noise_theta;
 		particles[i].x = x_next;
 		particles[i].y = y_next;
 		particles[i].theta = theta_next;
@@ -93,7 +96,7 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
 	for(unsigned int i = 0; i < observations.size(); i++){
 		double min_dist = numeric_limits<double>::max();
 		for(unsigned int j = 0; j < predicted.size(); j++){
-			double distance = dist(predicted[i].x, predicted[i].y, observations[j].x, observations[j].y);
+			double distance = dist(predicted[j].x, predicted[j].y, observations[i].x, observations[i].y);
 			if(distance < min_dist){
 				min_dist = distance;
 				observations[i].id = predicted[j].id;
@@ -115,7 +118,6 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 	//   3.33
 	//   http://planning.cs.uiuc.edu/node99.html
 	for (int i=0; i<num_particles; i++){
-		double weight_ = 1.0;
 		//int p_id = particles[i].id;
 		double p_x = particles[i].x;
 		double p_y = particles[i].y;
@@ -124,44 +126,55 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
         for (unsigned int j=0; j<map_landmarks.landmark_list.size(); j++){
 			int lm_id = map_landmarks.landmark_list[j].id_i;
 			double lm_x = map_landmarks.landmark_list[j].x_f;
-			double lm_y = map_landmarks.landmark_list[j].y_f;;
+			double lm_y = map_landmarks.landmark_list[j].y_f;
 			if(dist(lm_x, lm_y, p_x, p_y) < sensor_range) {
 				predicted.push_back(LandmarkObs{ lm_id, lm_x, lm_y });
             }
         }
+
 		vector<LandmarkObs> transformed_obs;
 		for (unsigned int k=0; k< observations.size(); k++){
-			double x_map = p_x + (cos(p_theta) * observations[k].x) - (sin(p_theta) * observations[k].y);
-			double y_map = p_x + (sin(p_theta) * observations[k].x) + (cos(p_theta) * observations[k].y);
-			transformed_obs.push_back(LandmarkObs{ observations[k].id, x_map, y_map });
+			double x_map = p_x + cos(p_theta) * observations[k].x - sin(p_theta) * observations[k].y;
+			double y_map = p_y + sin(p_theta) * observations[k].x + cos(p_theta) * observations[k].y;
+			transformed_obs.push_back(LandmarkObs{ k, x_map, y_map });
         }
+
 		dataAssociation(predicted, transformed_obs);
+		particles[i].weight = 1.0;
 		double sig_x = std_landmark[0];
 		double sig_y = std_landmark[1];
-		double mu_x, mu_y;
 		vector<int> associations;
 		vector<double> sense_x;
 		vector<double> sense_y;
 		for (unsigned int j=0; j<transformed_obs.size(); j++){
 			int association_id = transformed_obs[j].id;
-			associations[j] = association_id;
+			double mu_x, mu_y;
 			for (unsigned int k=0; k<predicted.size(); k++) {
 				if(predicted[k].id == association_id){
+					//cout<<association_id<<"\n";
 					mu_x = predicted[k].x;
 					mu_y = predicted[k].y;
+					//cout<<"landmark x"<<mu_x<<"\n";
+					//cout<<"landmark y"<<mu_y<<"\n";
+ 					//cout<<"observed x"<<transformed_obs[j].x<<"\n";
+ 					//cout<<"observed y"<<transformed_obs[j].y<<"\n";
 					associations.push_back(association_id);
 					sense_x.push_back(transformed_obs[j].x);
 					sense_x.push_back(transformed_obs[j].y);
                 }
             }
 			//calculate weight
-			double gauss_norm= (1/(2 * M_PI * sig_x * sig_y));
-			double exponent= (pow(transformed_obs[j].x - mu_x, 2)/(2 * pow(sig_x,2)) + pow(transformed_obs[j].y - mu_y, 2)/(2 * pow(sig_y,2)));
-			weight_ *= gauss_norm * exp(-exponent);
+			double gauss_norm= (1.0/(2.0 * M_PI * sig_x * sig_y));
+			//cout << transformed_obs[j].x-mu_x << "\n";
+			//cout << transformed_obs[j].y-mu_y << "\n";
+			double exponent= pow(transformed_obs[j].x-mu_x, 2)/(2 * pow(sig_x,2)) + pow(transformed_obs[j].y-mu_y, 2)/(2 * pow(sig_y,2));
+			//cout << exponent << "\n";
+			particles[i].weight *= gauss_norm * exp(-exponent);
+			//cout<<particles[i].weight<<"\n";
         }
-		SetAssociations(particles[i], associations, sense_x, sense_y);
-		particles[i].weight = weight_;
+		particles[i] = SetAssociations(particles[i], associations, sense_x, sense_y);
     }
+
 }
 
 void ParticleFilter::resample() {
@@ -171,16 +184,25 @@ void ParticleFilter::resample() {
 	default_random_engine gen;
 	vector<Particle> new_particles;
 	// get all of the current weights
-	vector<double> weights;
+	vector<double> weights_;
+	//normalize weight
+	double max_weight_init = 0;
 	for (int i = 0; i < num_particles; i++) {
-		weights.push_back(particles[i].weight);
+		if(particles[i].weight > max_weight_init){
+			max_weight_init = particles[i].weight ;
+        }
     }
-
+	for (int i = 0; i < num_particles; i++) {
+		//weights_.push_back(particles[i].weight);
+		weights_.push_back(particles[i].weight / max_weight_init);
+    }
+	weights = weights_;
 	// generate random starting index for resampling wheel
 	uniform_int_distribution<int> uniintdist(0, num_particles-1);
 	auto index = uniintdist(gen);
 	// get max weight
 	double max_weight = *max_element(weights.begin(), weights.end());
+	//cout << max_weight << "\n";
 	// uniform random distribution [0.0, max_weight)
 	uniform_real_distribution<double> unirealdist(0.0, max_weight);
 	double beta = 0.0;
@@ -196,7 +218,7 @@ void ParticleFilter::resample() {
 	particles = new_particles;
 }
 
-void ParticleFilter::SetAssociations(Particle& particle, const std::vector<int>& associations, 
+Particle ParticleFilter::SetAssociations(Particle& particle, const std::vector<int>& associations, 
                                      const std::vector<double>& sense_x, const std::vector<double>& sense_y)
 {
     //particle: the particle to assign each listed association, and association's (x,y) world coordinates mapping to
@@ -207,6 +229,7 @@ void ParticleFilter::SetAssociations(Particle& particle, const std::vector<int>&
     particle.associations= associations;
     particle.sense_x = sense_x;
     particle.sense_y = sense_y;
+    return particle;
 }
 
 string ParticleFilter::getAssociations(Particle best)
